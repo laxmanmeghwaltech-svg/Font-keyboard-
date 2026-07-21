@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Stylized Keyboard Outline -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M24,34 h60 c5.5,0 10,4.5 10,10 v24 c0,5.5 -4.5,10 -10,10 h-60 c-5.5,0 -10,-4.5 -10,-10 v-24 c0,-5.5 4.5,-10 10,-10 z" />
+    <!-- Dark Keyboard Inner Accent -->
+    <path
+        android:fillColor="#2196F3"
+        android:pathData="M26,37 h56 c3.3,0 6,2.7 6,6 v18 c0,3.3 -2.7,6 -6,6 h-56 c-3.3,0 -6,-2.7 -6,-6 v-18 c0,-3.3 2.7,-6 6,-6 z" />
+    <!-- Stylized "F" inside the keyboard -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,42 h14 v3 h-10 v5 h8 v3 h-8 v8 h-4 v-19 z" />
+    <!-- Individual Key dots/squares -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M28,43 h4 v4 h-4 z M36,43 h4 v4 h-4 z M28,51 h4 v4 h-4 z M36,51 h4 v4 h-4 z M70,43 h4 v4 h-4 z M78,43 h4 v4 h-4 z M70,51 h4 v4 h-4 z M78,51 h4 v4 h-4 z" />
+    <!-- Spacebar key -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,59 h40 v3 h-40 z" />
+</vector>

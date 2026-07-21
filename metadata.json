@@ -1,0 +1,6 @@
+{
+  "name": "Font Keyboard",
+  "description": "A powerful system keyboard with customizable fonts, font file upload, floating window, custom emojis, and voice dictation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
