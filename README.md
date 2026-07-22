@@ -1,6 +1,6 @@
 # README.md
 
-```markdown
+
 # FontBoard ⌨️
 
 A Gboard-inspired Android keyboard with **17 Unicode text styles**, **custom font upload**, **emoji + custom sticker support**, a **floating dictation bar**, and **voice-to-text powered by Google Gemini** — built for large Android tablets.
@@ -51,7 +51,7 @@ git clone <your-repo-url> FontBoard
 cd FontBoard
 # (optional) drop .ttf files into app/src/main/assets/fonts/
 ./gradlew assembleDebug
-```
+
 
 ### 2. Install
 
