@@ -88,7 +88,7 @@ open FontKeyboard.xcodeproj
 
 # --- Android (Gradle) ---
 ./gradlew assembleDebug
-```
+
 
 ---
 
@@ -191,6 +191,6 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 <p align="center">
   Made with ❤️ by the FontKeyboard Team
 </p>
-```
+
 
 This README is ready to drop into your repository. Just replace the placeholder URLs (e.g., `your-username`, `assets/` image paths) with your actual project details. It covers all the professional standards: badges, feature highlights, installation instructions for both platforms, usage guide, project structure, contribution guidelines, and licensing.
