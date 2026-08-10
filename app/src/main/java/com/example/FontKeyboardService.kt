@@ -353,6 +353,13 @@ class FontKeyboardService : InputMethodService(),
 
 // --- COMPOSE KEYBOARD UI ---
 
+enum class TabletMode(val displayName: String) {
+    FULL_WIDTH("Full Width"),
+    CENTERED_COMPACT("Centered 12.1\""),
+    SPLIT_THUMB("Split Keyboard"),
+    FLOATING("Floating Window")
+}
+
 @Composable
 fun KeyboardScreen(
     service: FontKeyboardService,
@@ -360,7 +367,7 @@ fun KeyboardScreen(
     customEmojis: List<CustomEmoji>
 ) {
     val context = LocalContext.current
-    var isFloating by remember { mutableStateOf(false) }
+    var tabletMode by remember { mutableStateOf(TabletMode.FULL_WIDTH) }
     var currentFontMode by remember { mutableStateOf(FontStyler.KeyboardFont.NORMAL) }
     var selectedCustomFont by remember { mutableStateOf<CustomFont?>(null) }
     var isShiftActive by remember { mutableStateOf(false) }
@@ -374,27 +381,40 @@ fun KeyboardScreen(
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
 
-    val containerModifier = if (isFloating) {
-        Modifier
-            .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
-            .width(420.dp)
-            .wrapContentHeight()
-            .pointerInput(Unit) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    offsetX += dragAmount.x
-                    offsetY += dragAmount.y
+    val isFloating = tabletMode == TabletMode.FLOATING
+
+    val containerModifier = when (tabletMode) {
+        TabletMode.FLOATING -> {
+            Modifier
+                .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
+                .width(440.dp)
+                .wrapContentHeight()
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        offsetX += dragAmount.x
+                        offsetY += dragAmount.y
+                    }
                 }
-            }
-            .clip(RoundedCornerShape(24.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f))
-            .testTag("floating_keyboard_container")
-    } else {
-        Modifier
-            .fillMaxWidth()
-            .height(290.dp)
-            .background(MaterialTheme.colorScheme.surface)
-            .testTag("docked_keyboard_container")
+                .clip(RoundedCornerShape(24.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f))
+                .testTag("floating_keyboard_container")
+        }
+        TabletMode.CENTERED_COMPACT -> {
+            Modifier
+                .widthIn(max = 620.dp)
+                .fillMaxWidth()
+                .height(290.dp)
+                .background(MaterialTheme.colorScheme.surface)
+                .testTag("compact_keyboard_container")
+        }
+        TabletMode.SPLIT_THUMB, TabletMode.FULL_WIDTH -> {
+            Modifier
+                .fillMaxWidth()
+                .height(290.dp)
+                .background(MaterialTheme.colorScheme.surface)
+                .testTag("docked_keyboard_container")
+        }
     }
 
     Box(
@@ -420,14 +440,26 @@ fun KeyboardScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Floating window handle or indicators
+                    // Tablet Layout Mode Selector Toggle
                     IconButton(
-                        onClick = { isFloating = !isFloating },
-                        modifier = Modifier.testTag("floating_toggle_btn")
+                        onClick = {
+                            tabletMode = when (tabletMode) {
+                                TabletMode.FULL_WIDTH -> TabletMode.CENTERED_COMPACT
+                                TabletMode.CENTERED_COMPACT -> TabletMode.SPLIT_THUMB
+                                TabletMode.SPLIT_THUMB -> TabletMode.FLOATING
+                                TabletMode.FLOATING -> TabletMode.FULL_WIDTH
+                            }
+                        },
+                        modifier = Modifier.testTag("tablet_mode_toggle_btn")
                     ) {
                         Icon(
-                            imageVector = if (isFloating) Icons.Default.VerticalAlignBottom else Icons.Outlined.Launch,
-                            contentDescription = "Toggle Floating Keyboard",
+                            imageVector = when (tabletMode) {
+                                TabletMode.FULL_WIDTH -> Icons.Default.AspectRatio
+                                TabletMode.CENTERED_COMPACT -> Icons.Default.FilterCenterFocus
+                                TabletMode.SPLIT_THUMB -> Icons.Default.CallSplit
+                                TabletMode.FLOATING -> Icons.Outlined.Launch
+                            },
+                            contentDescription = "Tablet Layout: ${tabletMode.displayName}",
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -610,6 +642,47 @@ fun KeyboardScreen(
                                             service.currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
                                         },
                                         onToggleSymbols = { isSymbolsActive = false }
+                                    )
+                                } else if (tabletMode == TabletMode.SPLIT_THUMB) {
+                                    SplitTabletKeyboardLayout(
+                                        isShiftActive = isShiftActive,
+                                        onKeyTap = { char ->
+                                            if (selectedCustomFont != null) {
+                                                stickerInputBuffer += char
+                                            } else {
+                                                val styled = FontStyler.styleText(char.toString(), currentFontMode)
+                                                service.currentInputConnection?.commitText(styled, 1)
+                                            }
+                                        },
+                                        onShift = { isShiftActive = !isShiftActive },
+                                        onBackspace = {
+                                            if (selectedCustomFont != null && stickerInputBuffer.isNotEmpty()) {
+                                                stickerInputBuffer = stickerInputBuffer.dropLast(1)
+                                            } else {
+                                                service.currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
+                                                service.currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL))
+                                            }
+                                        },
+                                        onSpace = {
+                                            if (selectedCustomFont != null) {
+                                                stickerInputBuffer += " "
+                                            } else {
+                                                service.currentInputConnection?.commitText(" ", 1)
+                                            }
+                                        },
+                                        onEnter = {
+                                            if (selectedCustomFont != null && stickerInputBuffer.isNotEmpty()) {
+                                                selectedCustomFont?.let { font ->
+                                                    val bitmap = renderTextToBitmap(context, stickerInputBuffer, font.filePath)
+                                                    service.shareStickerImage(context, bitmap)
+                                                    stickerInputBuffer = ""
+                                                }
+                                            } else {
+                                                service.currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+                                                service.currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+                                            }
+                                        },
+                                        onToggleSymbols = { isSymbolsActive = true }
                                     )
                                 } else {
                                     AlphabetKeyboardLayout(
@@ -819,6 +892,105 @@ fun AlphabetKeyboardLayout(
                 contentColor = MaterialTheme.colorScheme.onPrimary
             ) {
                 onEnter()
+            }
+        }
+    }
+}
+
+@Composable
+fun SplitTabletKeyboardLayout(
+    isShiftActive: Boolean,
+    onKeyTap: (Char) -> Unit,
+    onShift: () -> Unit,
+    onBackspace: () -> Unit,
+    onSpace: () -> Unit,
+    onEnter: () -> Unit,
+    onToggleSymbols: () -> Unit
+) {
+    val leftRow1 = listOf('q', 'w', 'e', 'r', 't')
+    val rightRow1 = listOf('y', 'u', 'i', 'o', 'p')
+    val leftRow2 = listOf('a', 's', 'd', 'f', 'g')
+    val rightRow2 = listOf('h', 'j', 'k', 'l')
+    val leftRow3 = listOf('z', 'x', 'c', 'v')
+    val rightRow3 = listOf('b', 'n', 'm')
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        // Row 1
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                leftRow1.forEach { char ->
+                    val letter = if (isShiftActive) char.uppercaseChar() else char
+                    KeyButton(text = letter.toString(), modifier = Modifier.weight(1f)) { onKeyTap(letter) }
+                }
+            }
+            Spacer(modifier = Modifier.width(60.dp))
+            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                rightRow1.forEach { char ->
+                    val letter = if (isShiftActive) char.uppercaseChar() else char
+                    KeyButton(text = letter.toString(), modifier = Modifier.weight(1f)) { onKeyTap(letter) }
+                }
+            }
+        }
+
+        // Row 2
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                leftRow2.forEach { char ->
+                    val letter = if (isShiftActive) char.uppercaseChar() else char
+                    KeyButton(text = letter.toString(), modifier = Modifier.weight(1f)) { onKeyTap(letter) }
+                }
+            }
+            Spacer(modifier = Modifier.width(90.dp))
+            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                rightRow2.forEach { char ->
+                    val letter = if (isShiftActive) char.uppercaseChar() else char
+                    KeyButton(text = letter.toString(), modifier = Modifier.weight(1f)) { onKeyTap(letter) }
+                }
+            }
+        }
+
+        // Row 3
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(modifier = Modifier.weight(1.2f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                KeyButton(
+                    icon = if (isShiftActive) Icons.Default.KeyboardDoubleArrowUp else Icons.Default.ArrowUpward,
+                    modifier = Modifier.width(48.dp),
+                    backgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ) { onShift() }
+
+                leftRow3.forEach { char ->
+                    val letter = if (isShiftActive) char.uppercaseChar() else char
+                    KeyButton(text = letter.toString(), modifier = Modifier.weight(1f)) { onKeyTap(letter) }
+                }
+            }
+            Spacer(modifier = Modifier.width(50.dp))
+            Row(modifier = Modifier.weight(1.2f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                rightRow3.forEach { char ->
+                    val letter = if (isShiftActive) char.uppercaseChar() else char
+                    KeyButton(text = letter.toString(), modifier = Modifier.weight(1f)) { onKeyTap(letter) }
+                }
+                KeyButton(
+                    icon = Icons.Outlined.Backspace,
+                    modifier = Modifier.width(48.dp),
+                    backgroundColor = MaterialTheme.colorScheme.surfaceVariant
+                ) { onBackspace() }
+            }
+        }
+
+        // Row 4
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                KeyButton(text = "?123", modifier = Modifier.width(56.dp), backgroundColor = MaterialTheme.colorScheme.surfaceVariant) { onToggleSymbols() }
+                KeyButton(text = " ", modifier = Modifier.weight(1f), backgroundColor = MaterialTheme.colorScheme.surfaceVariant) { onSpace() }
+            }
+            Spacer(modifier = Modifier.width(70.dp))
+            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                KeyButton(text = " ", modifier = Modifier.weight(1f), backgroundColor = MaterialTheme.colorScheme.surfaceVariant) { onSpace() }
+                KeyButton(icon = Icons.Default.KeyboardReturn, modifier = Modifier.width(68.dp), backgroundColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) { onEnter() }
             }
         }
     }

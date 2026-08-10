@@ -4,24 +4,85 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Stylized Keyboard Outline -->
+
+    <!-- Outer Rounded Dark Container Badge (Squircle) -->
+    <path
+        android:fillColor="#1D2430"
+        android:strokeColor="#2E3A4D"
+        android:strokeWidth="1.2"
+        android:pathData="M32,18 h44 c7.7,0 14,6.3 14,14 v44 c0,7.7 -6.3,14 -14,14 h-44 c-7.7,0 -14,-6.3 -14,-14 v-44 c0,-7.7 6.3,-14 14,-14 z" />
+
+    <!-- TOP SECTION: [A a] FONT PREVIEW FRAME -->
+    <!-- Top-Left Corner Bracket -->
+    <path
+        android:strokeColor="#E2E8F0"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M33,31 h-5 v5" />
+
+    <!-- Bottom-Left Corner Bracket -->
+    <path
+        android:strokeColor="#E2E8F0"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M28,50 v5 h5" />
+
+    <!-- Top-Right Corner Bracket -->
+    <path
+        android:strokeColor="#E2E8F0"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M75,31 h5 v5" />
+
+    <!-- Bottom-Right Corner Bracket -->
+    <path
+        android:strokeColor="#E2E8F0"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M80,50 v5 h-5" />
+
+    <!-- Right Side Height Ticks / Measurement Indicator -->
+    <path
+        android:strokeColor="#E2E8F0"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M82,33 h3 M83.5,33 v20 M82,53 h3" />
+
+    <!-- WHITE SERIF UPPERCASE 'A' -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M24,34 h60 c5.5,0 10,4.5 10,10 v24 c0,5.5 -4.5,10 -10,10 h-60 c-5.5,0 -10,-4.5 -10,-10 v-24 c0,-5.5 4.5,-10 10,-10 z" />
-    <!-- Dark Keyboard Inner Accent -->
+        android:pathData="M38,32 h4 l7,20 h-3.5 l-1.8,-5.2 h-7.4 l-1.8,5.2 h-3.5 z M38,44.2 h5.8 l-2.9,-8.6 z" />
+
+    <!-- CYAN / BLUE CURSIVE SCRIPT LOWERCASE 'a' -->
     <path
-        android:fillColor="#2196F3"
-        android:pathData="M26,37 h56 c3.3,0 6,2.7 6,6 v18 c0,3.3 -2.7,6 -6,6 h-56 c-3.3,0 -6,-2.7 -6,-6 v-18 c0,-3.3 2.7,-6 6,-6 z" />
-    <!-- Stylized "F" inside the keyboard -->
+        android:fillColor="#00B0FF"
+        android:pathData="M56,41.5 c-1.8,-1.2 -3.5,-1.2 -5.2,0.2 c-1.8,1.4 -2.6,3.6 -2.3,6.2 c0.3,2.5 1.8,4.2 3.8,4.2 c1.6,0 3,-0.8 4,-2.2 l-0.2,1.8 h2.8 l1.8,-9.8 c0.4,-2.2 -0.6,-3.4 -2.6,-3.4 c-1.6,0 -3,0.8 -4.2,2.2 l1.2,1.2 c0.8,-0.8 1.6,-1.2 2.4,-1.2 c0.8,0 1.2,0.4 1,1.4 l-0.5,2.6 c-0.6,-1.2 -1.5,-2 -2,-2 z M53,49.8 c-1.2,0 -2,-1 -2.1,-2.4 c-0.2,-1.5 0.3,-2.8 1.3,-3.6 c0.8,-0.6 1.8,-0.6 2.6,0.2 l-1,5.2 c-0.3,0.4 -0.6,0.6 -0.8,0.6 z" />
+
+    <!-- BOTTOM SECTION: KEYBOARD LAYOUT -->
+    <!-- Key Row 1 -->
+    <path
+        android:fillColor="#323E52"
+        android:pathData="M24,58 h5 v5 h-5 z M31,58 h5 v5 h-5 z M38,58 h5 v5 h-5 z M45,58 h5 v5 h-5 z M52,58 h5 v5 h-5 z M59,58 h5 v5 h-5 z M66,58 h5 v5 h-5 z M73,58 h5 v5 h-5 z M80,58 h5 v5 h-5 z" />
+
+    <!-- Key Row 2 -->
+    <path
+        android:fillColor="#323E52"
+        android:pathData="M24,65 h5 v5 h-5 z M31,65 h5 v5 h-5 z M38,65 h5 v5 h-5 z M45,65 h5 v5 h-5 z M52,65 h5 v5 h-5 z M59,65 h5 v5 h-5 z M66,65 h5 v5 h-5 z M73,65 h5 v5 h-5 z M80,65 h5 v5 h-5 z" />
+
+    <!-- Key Row 3 Side Action Keys -->
+    <path
+        android:fillColor="#3A485F"
+        android:pathData="M24,72 h9 c1,0 1.5,0.5 1.5,1.5 v3.5 c0,1 -0.5,1.5 -1.5,1.5 h-9 c-1,0 -1.5,-0.5 -1.5,-1.5 v-3.5 c0,-1 0.5,-1.5 1.5,-1.5 z M75,72 h9 c1,0 1.5,0.5 1.5,1.5 v3.5 c0,1 -0.5,1.5 -1.5,1.5 h-9 c-1,0 -1.5,-0.5 -1.5,-1.5 v-3.5 c0,-1 0.5,-1.5 1.5,-1.5 z" />
+
+    <!-- KEYBOARD WHITE SPACEBAR -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M48,42 h14 v3 h-10 v5 h8 v3 h-8 v8 h-4 v-19 z" />
-    <!-- Individual Key dots/squares -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M28,43 h4 v4 h-4 z M36,43 h4 v4 h-4 z M28,51 h4 v4 h-4 z M36,51 h4 v4 h-4 z M70,43 h4 v4 h-4 z M78,43 h4 v4 h-4 z M70,51 h4 v4 h-4 z M78,51 h4 v4 h-4 z" />
-    <!-- Spacebar key -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M34,59 h40 v3 h-40 z" />
+        android:pathData="M37,72 h34 c1.2,0 2,0.8 2,2 v2.5 c0,1.2 -0.8,2 -2,2 h-34 c-1.2,0 -2,-0.8 -2,-2 v-2.5 c0,-1.2 0.8,-2 2,-2 z" />
+
 </vector>
+
