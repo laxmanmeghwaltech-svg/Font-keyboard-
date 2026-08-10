@@ -1,4 +1,4 @@
-```markdown
+
 # 🎨 FontKeyboard
 
 <p align="center">
@@ -78,7 +78,7 @@ The generated text uses Unicode characters, meaning it works seamlessly across *
 
 ### Building from Source
 
-```bash
+
 # Clone the repository
 git clone https://github.com/your-username/fontkeyboard.git
 cd fontkeyboard
