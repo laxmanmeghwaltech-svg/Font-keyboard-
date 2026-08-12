@@ -44,9 +44,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.example.data.ClipboardItem
 import com.example.data.CustomEmoji
 import com.example.data.CustomFont
 import com.example.data.KeyboardDatabase
+import com.example.data.KeyboardPreferencesManager
+import com.example.data.TextShortcut
 import com.example.ui.theme.MyApplicationTheme
 import com.example.utils.FontStyler
 import kotlinx.coroutines.Dispatchers
@@ -144,7 +147,13 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 val copiedFile = copyUriToInternalStorage(context, selectedUri, "fonts", fileName)
                 if (copiedFile != null) {
                     val fontName = fileName.substringBeforeLast(".")
-                    val customFont = CustomFont(name = fontName, filePath = copiedFile.absolutePath)
+                    val extension = fileName.substringAfterLast(".", "ttf").lowercase()
+                    val customFont = CustomFont(
+                        name = fontName,
+                        filePath = copiedFile.absolutePath,
+                        fileSize = copiedFile.length(),
+                        fontFormat = extension
+                    )
                     db.fontDao().insertFont(customFont)
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, "Font '$fontName' uploaded successfully!", Toast.LENGTH_SHORT).show()
@@ -321,6 +330,11 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
                                 TabletOptimizationInfoCard()
 
+                                KeyboardPreferencesCard(
+                                    context = context,
+                                    coroutineScope = coroutineScope
+                                )
+
                                 VoiceDictationCard(
                                     hasMicPermission = hasMicPermission,
                                     micPermissionLauncher = micPermissionLauncher
@@ -337,6 +351,16 @@ fun MainScreen(modifier: Modifier = Modifier) {
                                     onTestTextChange = { testText = it },
                                     selectedFontMode = selectedFontMode,
                                     onFontModeChange = { selectedFontMode = it }
+                                )
+
+                                TextShortcutManagerCard(
+                                    db = db,
+                                    coroutineScope = coroutineScope
+                                )
+
+                                ClipboardManagerCard(
+                                    db = db,
+                                    coroutineScope = coroutineScope
                                 )
 
                                 CustomFontUploaderCard(
@@ -367,6 +391,11 @@ fun MainScreen(modifier: Modifier = Modifier) {
                                 context = context
                             )
 
+                            KeyboardPreferencesCard(
+                                context = context,
+                                coroutineScope = coroutineScope
+                            )
+
                             VoiceDictationCard(
                                 hasMicPermission = hasMicPermission,
                                 micPermissionLauncher = micPermissionLauncher
@@ -377,6 +406,16 @@ fun MainScreen(modifier: Modifier = Modifier) {
                                 onTestTextChange = { testText = it },
                                 selectedFontMode = selectedFontMode,
                                 onFontModeChange = { selectedFontMode = it }
+                            )
+
+                            TextShortcutManagerCard(
+                                db = db,
+                                coroutineScope = coroutineScope
+                            )
+
+                            ClipboardManagerCard(
+                                db = db,
+                                coroutineScope = coroutineScope
                             )
 
                             CustomFontUploaderCard(
@@ -997,6 +1036,405 @@ fun CustomEmojiStickerCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun TextShortcutManagerCard(
+    db: KeyboardDatabase,
+    coroutineScope: kotlinx.coroutines.CoroutineScope
+) {
+    val shortcuts = remember { mutableStateListOf<TextShortcut>() }
+    var shortcutText by remember { mutableStateOf("") }
+    var expansionText by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        db.shortcutDao().getAllShortcuts().collectLatest { list ->
+            shortcuts.clear()
+            shortcuts.addAll(list)
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("text_shortcut_card"),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Text Expander & Shortcuts",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Type short codes (e.g. 'omw' -> 'On my way!') to expand instantly. Variables: {date}, {time}, {clipboard}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = shortcutText,
+                    onValueChange = { shortcutText = it },
+                    label = { Text("Code (e.g., omw)", fontSize = 11.sp) },
+                    singleLine = true,
+                    modifier = Modifier.weight(0.4f)
+                )
+
+                OutlinedTextField(
+                    value = expansionText,
+                    onValueChange = { expansionText = it },
+                    label = { Text("Expanded Text", fontSize = 11.sp) },
+                    singleLine = true,
+                    modifier = Modifier.weight(0.6f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Button(
+                onClick = {
+                    if (shortcutText.isNotBlank() && expansionText.isNotBlank()) {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            db.shortcutDao().insertShortcut(
+                                TextShortcut(shortcut = shortcutText.trim(), expansion = expansionText.trim())
+                            )
+                        }
+                        shortcutText = ""
+                        expansionText = ""
+                    }
+                },
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Add Shortcut", fontSize = 12.sp)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (shortcuts.isEmpty()) {
+                Text(
+                    text = "No custom shortcuts created yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    shortcuts.forEach { item ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(text = item.shortcut, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                    Text(text = item.expansion, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                IconButton(
+                                    onClick = {
+                                        coroutineScope.launch(Dispatchers.IO) {
+                                            db.shortcutDao().deleteShortcut(item)
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete Shortcut", tint = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ClipboardManagerCard(
+    db: KeyboardDatabase,
+    coroutineScope: kotlinx.coroutines.CoroutineScope
+) {
+    val clips = remember { mutableStateListOf<ClipboardItem>() }
+
+    LaunchedEffect(Unit) {
+        db.clipboardDao().getAllClipboardItems().collectLatest { list ->
+            clips.clear()
+            clips.addAll(list)
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("clipboard_manager_card"),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Clipboard History Manager (${clips.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                if (clips.isNotEmpty()) {
+                    TextButton(
+                        onClick = {
+                            coroutineScope.launch(Dispatchers.IO) {
+                                db.clipboardDao().clearUnpinnedClipboard()
+                            }
+                        }
+                    ) {
+                        Text("Clear Unpinned", fontSize = 11.sp)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Clipboard items copied in any app appear here automatically. Pin items to preserve them.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (clips.isEmpty()) {
+                Text(
+                    text = "Clipboard history is currently empty.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    clips.take(5).forEach { clip ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (clip.isPinned) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = clip.text,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2,
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                Row {
+                                    IconButton(
+                                        onClick = {
+                                            coroutineScope.launch(Dispatchers.IO) {
+                                                db.clipboardDao().insertClipboardItem(clip.copy(isPinned = !clip.isPinned))
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = if (clip.isPinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                                            contentDescription = "Pin",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun KeyboardPreferencesCard(
+    context: Context,
+    coroutineScope: kotlinx.coroutines.CoroutineScope
+) {
+    val prefsManager = remember { KeyboardPreferencesManager(context) }
+
+    val hapticFeedback by prefsManager.hapticFeedbackFlow.collectAsState(initial = true)
+    val autoCorrection by prefsManager.autoCorrectionFlow.collectAsState(initial = true)
+    val autoCapitalization by prefsManager.autoCapitalizationFlow.collectAsState(initial = true)
+    val keyPopup by prefsManager.keyPopupFlow.collectAsState(initial = true)
+    val suggestionStrip by prefsManager.suggestionStripFlow.collectAsState(initial = true)
+    val incognitoMode by prefsManager.incognitoModeFlow.collectAsState(initial = false)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("keyboard_preferences_card"),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "Keyboard Preferences (DataStore)",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Customize feedback, typing behavior, and privacy settings stored persistently in DataStore.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            PreferenceToggleRow(
+                title = "Haptic Feedback",
+                description = "Tactile vibration pulse on every key tap",
+                icon = Icons.Default.Vibration,
+                checked = hapticFeedback,
+                onCheckedChange = { enabled ->
+                    coroutineScope.launch { prefsManager.setHapticFeedback(enabled) }
+                }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+            PreferenceToggleRow(
+                title = "Auto-Correction",
+                description = "Automatically fix typos and common spelling errors",
+                icon = Icons.Default.AutoFixHigh,
+                checked = autoCorrection,
+                onCheckedChange = { enabled ->
+                    coroutineScope.launch { prefsManager.setAutoCorrection(enabled) }
+                }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+            PreferenceToggleRow(
+                title = "Auto-Capitalization",
+                description = "Capitalize first character of every new sentence",
+                icon = Icons.Default.Title,
+                checked = autoCapitalization,
+                onCheckedChange = { enabled ->
+                    coroutineScope.launch { prefsManager.setAutoCapitalization(enabled) }
+                }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+            PreferenceToggleRow(
+                title = "Key Press Popup Preview",
+                description = "Display enlarged letter bubble when pressing keys",
+                icon = Icons.Default.FlipToFront,
+                checked = keyPopup,
+                onCheckedChange = { enabled ->
+                    coroutineScope.launch { prefsManager.setKeyPopup(enabled) }
+                }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+            PreferenceToggleRow(
+                title = "Word Suggestion Strip",
+                description = "Show quick font modes & suggestion bar above keyboard",
+                icon = Icons.Default.FontDownload,
+                checked = suggestionStrip,
+                onCheckedChange = { enabled ->
+                    coroutineScope.launch { prefsManager.setSuggestionStrip(enabled) }
+                }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+            PreferenceToggleRow(
+                title = "Incognito Privacy Mode",
+                description = "Pause saving clipboard history while active",
+                icon = Icons.Default.VisibilityOff,
+                checked = incognitoMode,
+                onCheckedChange = { enabled ->
+                    coroutineScope.launch { prefsManager.setIncognitoMode(enabled) }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun PreferenceToggleRow(
+    title: String,
+    description: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
     }
 }
 

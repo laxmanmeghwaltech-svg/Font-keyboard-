@@ -26,6 +26,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -63,9 +64,12 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import coil.compose.AsyncImage
+import com.example.data.ClipboardItem
 import com.example.data.CustomEmoji
 import com.example.data.CustomFont
 import com.example.data.KeyboardDatabase
+import com.example.data.KeyboardPreferencesManager
+import com.example.data.TextShortcut
 import com.example.ui.theme.MyApplicationTheme
 import com.example.utils.FontStyler
 import kotlinx.coroutines.CoroutineScope
@@ -99,8 +103,10 @@ class FontKeyboardService : InputMethodService(),
     val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     // Database loaded state
-    private val customFontsState = mutableStateListOf<CustomFont>()
-    private val customEmojisState = mutableStateListOf<CustomEmoji>()
+    val customFontsState = mutableStateListOf<CustomFont>()
+    val customEmojisState = mutableStateListOf<CustomEmoji>()
+    val shortcutsState = mutableStateListOf<TextShortcut>()
+    val clipboardState = mutableStateListOf<ClipboardItem>()
 
     // Recording State
     private var mediaRecorder: MediaRecorder? = null
@@ -108,10 +114,42 @@ class FontKeyboardService : InputMethodService(),
     var isRecording = mutableStateOf(false)
     var dictationStatus = mutableStateOf("")
 
+    // DataStore Preferences State
+    var hapticFeedbackEnabled = mutableStateOf(true)
+    var autoCorrectionEnabled = mutableStateOf(true)
+    var autoCapitalizationEnabled = mutableStateOf(true)
+    var keyPopupEnabled = mutableStateOf(true)
+    var suggestionStripEnabled = mutableStateOf(true)
+    var incognitoModeEnabled = mutableStateOf(false)
+
+    private lateinit var prefsManager: KeyboardPreferencesManager
+
     override fun onCreate() {
         super.onCreate()
         savedStateRegistryController.performRestore(null)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+
+        prefsManager = KeyboardPreferencesManager(applicationContext)
+        serviceScope.launch {
+            prefsManager.hapticFeedbackFlow.collectLatest { hapticFeedbackEnabled.value = it }
+        }
+        serviceScope.launch {
+            prefsManager.autoCorrectionFlow.collectLatest { autoCorrectionEnabled.value = it }
+        }
+        serviceScope.launch {
+            prefsManager.autoCapitalizationFlow.collectLatest { autoCapitalizationEnabled.value = it }
+        }
+        serviceScope.launch {
+            prefsManager.keyPopupFlow.collectLatest { keyPopupEnabled.value = it }
+        }
+        serviceScope.launch {
+            prefsManager.suggestionStripFlow.collectLatest { suggestionStripEnabled.value = it }
+        }
+        serviceScope.launch {
+            prefsManager.incognitoModeFlow.collectLatest { incognitoModeEnabled.value = it }
+        }
+
+        setupClipboardListener()
 
         // Load data from Room Database
         serviceScope.launch {
@@ -126,6 +164,133 @@ class FontKeyboardService : InputMethodService(),
             db.emojiDao().getAllEmojis().collectLatest { emojis ->
                 customEmojisState.clear()
                 customEmojisState.addAll(emojis)
+            }
+        }
+        serviceScope.launch {
+            val db = KeyboardDatabase.getInstance(applicationContext)
+            db.shortcutDao().getAllShortcuts().collectLatest { shortcuts ->
+                shortcutsState.clear()
+                shortcutsState.addAll(shortcuts)
+            }
+        }
+        serviceScope.launch {
+            val db = KeyboardDatabase.getInstance(applicationContext)
+            db.clipboardDao().getAllClipboardItems().collectLatest { items ->
+                clipboardState.clear()
+                clipboardState.addAll(items)
+            }
+        }
+    }
+
+    private fun setupClipboardListener() {
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            clipboard?.addPrimaryClipChangedListener {
+                val clipData = clipboard.primaryClip
+                if (clipData != null && clipData.itemCount > 0) {
+                    val text = clipData.getItemAt(0).text?.toString()
+                    if (!text.isNullOrBlank() && !incognitoModeEnabled.value) {
+                        serviceScope.launch(Dispatchers.IO) {
+                            val db = KeyboardDatabase.getInstance(applicationContext)
+                            db.clipboardDao().insertClipboardItem(
+                                ClipboardItem(text = text, timestamp = System.currentTimeMillis())
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun getCurrentInputText(): String {
+        val conn = currentInputConnection ?: return ""
+        val extracted = conn.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+        if (extracted != null && !extracted.text.isNullOrEmpty()) {
+            return extracted.text.toString()
+        }
+        val before = conn.getTextBeforeCursor(1000, 0)?.toString() ?: ""
+        val after = conn.getTextAfterCursor(1000, 0)?.toString() ?: ""
+        return before + after
+    }
+
+    fun replaceCurrentTextWith(newText: String) {
+        val conn = currentInputConnection ?: return
+        val extracted = conn.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+        if (extracted != null && !extracted.text.isNullOrEmpty()) {
+            conn.performContextMenuAction(android.R.id.selectAll)
+            conn.commitText(newText, 1)
+        } else {
+            conn.deleteSurroundingText(1000, 1000)
+            conn.commitText(newText, 1)
+        }
+    }
+
+    fun requestAiProofread(actionTag: String, textToProof: String, onResult: (String) -> Unit) {
+        val apiKey = BuildConfig.GEMINI_API_KEY
+        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
+            onResult("Gemini API key is not set. Please add key in AI Studio Secrets.")
+            return
+        }
+
+        val prompt = when (actionTag.lowercase()) {
+            "proofread", "grammar" -> "Proofread and fix all spelling and grammar mistakes in this text. Return ONLY the polished final text:\n\n$textToProof"
+            "formal" -> "Rewrite this text in a professional, formal tone. Return ONLY the rewritten text:\n\n$textToProof"
+            "friendly" -> "Rewrite this text in a warm, friendly tone. Return ONLY the rewritten text:\n\n$textToProof"
+            "summarize" -> "Summarize this text concisely in 1-2 bullet points or sentences:\n\n$textToProof"
+            "translate" -> "Translate this text accurately into English (or polish if already English). Return ONLY the translated text:\n\n$textToProof"
+            else -> "$actionTag:\n\n$textToProof"
+        }
+
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(15, TimeUnit.SECONDS)
+                    .readTimeout(15, TimeUnit.SECONDS)
+                    .build()
+
+                val jsonBody = JSONObject().apply {
+                    put("contents", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("parts", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("text", prompt)
+                                })
+                            })
+                        })
+                    })
+                }
+
+                val request = Request.Builder()
+                    .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey")
+                    .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                val response = client.newCall(request).execute()
+                val responseBody = response.body?.string() ?: ""
+                if (response.isSuccessful && responseBody.isNotEmpty()) {
+                    val json = JSONObject(responseBody)
+                    val candidateText = json.getJSONArray("candidates")
+                        .getJSONObject(0)
+                        .getJSONObject("content")
+                        .getJSONArray("parts")
+                        .getJSONObject(0)
+                        .getString("text")
+                        .trim()
+
+                    Handler(Looper.getMainLooper()).post {
+                        onResult(candidateText)
+                    }
+                } else {
+                    Handler(Looper.getMainLooper()).post {
+                        onResult("Error ${response.code}: Failed to reach Gemini API")
+                    }
+                }
+            } catch (e: Exception) {
+                Handler(Looper.getMainLooper()).post {
+                    onResult("AI Error: ${e.localizedMessage ?: "Connection failed"}")
+                }
             }
         }
     }
@@ -505,6 +670,50 @@ fun KeyboardScreen(
 
                     // Tab Buttons
                     IconButton(
+                        onClick = { activeTab = if (activeTab == "ai") "keys" else "ai" },
+                        modifier = Modifier.testTag("ai_tab_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "AI Proofread",
+                            tint = if (activeTab == "ai") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { activeTab = if (activeTab == "dpad") "keys" else "dpad" },
+                        modifier = Modifier.testTag("dpad_tab_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.OpenInFull,
+                            contentDescription = "Text Edit DPAD",
+                            tint = if (activeTab == "dpad") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { activeTab = if (activeTab == "clipboard") "keys" else "clipboard" },
+                        modifier = Modifier.testTag("clipboard_tab_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentPaste,
+                            contentDescription = "Clipboard History",
+                            tint = if (activeTab == "clipboard") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { activeTab = if (activeTab == "shortcuts") "keys" else "shortcuts" },
+                        modifier = Modifier.testTag("shortcuts_tab_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FlashOn,
+                            contentDescription = "Text Shortcuts",
+                            tint = if (activeTab == "shortcuts") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    IconButton(
                         onClick = {
                             activeTab = if (activeTab == "emojis") "keys" else "emojis"
                         },
@@ -513,7 +722,7 @@ fun KeyboardScreen(
                         Icon(
                             imageVector = if (activeTab == "emojis") Icons.Outlined.KeyboardAlt else Icons.Outlined.EmojiEmotions,
                             contentDescription = "Emojis",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (activeTab == "emojis") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -526,7 +735,7 @@ fun KeyboardScreen(
                         Icon(
                             imageVector = Icons.Default.FontDownload,
                             contentDescription = "Fonts Selection",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (activeTab == "custom_fonts") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -596,36 +805,38 @@ fun KeyboardScreen(
                     when (activeTab) {
                         "keys" -> {
                             Column {
-                                // Row of Unicode Fonts
-                                LazyRow(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 2.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    items(FontStyler.KeyboardFont.values()) { font ->
-                                        val isSelected = currentFontMode == font && selectedCustomFont == null
-                                        Button(
-                                            onClick = {
-                                                currentFontMode = font
-                                                selectedCustomFont = null
-                                            },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                                            ),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
-                                            modifier = Modifier.height(32.dp)
-                                        ) {
-                                            Text(
-                                                text = FontStyler.styleText(font.displayName, font),
-                                                style = MaterialTheme.typography.bodySmall
-                                            )
+                                // Row of Unicode Fonts & Suggestion Strip
+                                if (service.suggestionStripEnabled.value) {
+                                    LazyRow(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        items(FontStyler.KeyboardFont.values()) { font ->
+                                            val isSelected = currentFontMode == font && selectedCustomFont == null
+                                            Button(
+                                                onClick = {
+                                                    currentFontMode = font
+                                                    selectedCustomFont = null
+                                                },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                ),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                                modifier = Modifier.height(32.dp)
+                                            ) {
+                                                Text(
+                                                    text = FontStyler.styleText(font.displayName, font),
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
                                         }
                                     }
-                                }
 
-                                Spacer(modifier = Modifier.height(4.dp))
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
 
                                 // Render standard Keyboard keys
                                 if (isSymbolsActive) {
@@ -687,6 +898,8 @@ fun KeyboardScreen(
                                 } else {
                                     AlphabetKeyboardLayout(
                                         isShiftActive = isShiftActive,
+                                        hapticFeedbackEnabled = service.hapticFeedbackEnabled.value,
+                                        keyPopupEnabled = service.keyPopupEnabled.value,
                                         onKeyTap = { char ->
                                             if (selectedCustomFont != null) {
                                                 // Buffer the typing to composite as sticker later
@@ -761,6 +974,30 @@ fun KeyboardScreen(
                                 }
                             )
                         }
+                        "ai" -> {
+                            AiProofreaderLayout(
+                                service = service,
+                                onClose = { activeTab = "keys" }
+                            )
+                        }
+                        "dpad" -> {
+                            TextEditingLayout(
+                                service = service,
+                                onClose = { activeTab = "keys" }
+                            )
+                        }
+                        "clipboard" -> {
+                            ClipboardHistoryLayout(
+                                service = service,
+                                onClose = { activeTab = "keys" }
+                            )
+                        }
+                        "shortcuts" -> {
+                            TextShortcutsLayout(
+                                service = service,
+                                onClose = { activeTab = "keys" }
+                            )
+                        }
                         "custom_fonts" -> {
                             CustomFontsPickerLayout(
                                 customFonts = customFonts,
@@ -787,6 +1024,8 @@ fun KeyboardScreen(
 @Composable
 fun AlphabetKeyboardLayout(
     isShiftActive: Boolean,
+    hapticFeedbackEnabled: Boolean = true,
+    keyPopupEnabled: Boolean = true,
     onKeyTap: (Char) -> Unit,
     onShift: () -> Unit,
     onBackspace: () -> Unit,
@@ -809,7 +1048,12 @@ fun AlphabetKeyboardLayout(
         ) {
             row1.forEach { char ->
                 val letter = if (isShiftActive) char.uppercaseChar() else char
-                KeyButton(text = letter.toString(), modifier = Modifier.weight(1f)) {
+                KeyButton(
+                    text = letter.toString(),
+                    modifier = Modifier.weight(1f),
+                    hapticFeedbackEnabled = hapticFeedbackEnabled,
+                    keyPopupEnabled = keyPopupEnabled
+                ) {
                     onKeyTap(letter)
                 }
             }
@@ -824,7 +1068,12 @@ fun AlphabetKeyboardLayout(
         ) {
             row2.forEach { char ->
                 val letter = if (isShiftActive) char.uppercaseChar() else char
-                KeyButton(text = letter.toString(), modifier = Modifier.weight(1f)) {
+                KeyButton(
+                    text = letter.toString(),
+                    modifier = Modifier.weight(1f),
+                    hapticFeedbackEnabled = hapticFeedbackEnabled,
+                    keyPopupEnabled = keyPopupEnabled
+                ) {
                     onKeyTap(letter)
                 }
             }
@@ -841,14 +1090,21 @@ fun AlphabetKeyboardLayout(
                 icon = if (isShiftActive) Icons.Default.KeyboardDoubleArrowUp else Icons.Default.ArrowUpward,
                 modifier = Modifier.width(54.dp),
                 backgroundColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                hapticFeedbackEnabled = hapticFeedbackEnabled,
+                keyPopupEnabled = keyPopupEnabled
             ) {
                 onShift()
             }
 
             row3.forEach { char ->
                 val letter = if (isShiftActive) char.uppercaseChar() else char
-                KeyButton(text = letter.toString(), modifier = Modifier.weight(1f)) {
+                KeyButton(
+                    text = letter.toString(),
+                    modifier = Modifier.weight(1f),
+                    hapticFeedbackEnabled = hapticFeedbackEnabled,
+                    keyPopupEnabled = keyPopupEnabled
+                ) {
                     onKeyTap(letter)
                 }
             }
@@ -857,7 +1113,9 @@ fun AlphabetKeyboardLayout(
             KeyButton(
                 icon = Icons.Outlined.Backspace,
                 modifier = Modifier.width(54.dp),
-                backgroundColor = MaterialTheme.colorScheme.surfaceVariant
+                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                hapticFeedbackEnabled = hapticFeedbackEnabled,
+                keyPopupEnabled = keyPopupEnabled
             ) {
                 onBackspace()
             }
@@ -872,7 +1130,9 @@ fun AlphabetKeyboardLayout(
             KeyButton(
                 text = "?123",
                 modifier = Modifier.width(68.dp),
-                backgroundColor = MaterialTheme.colorScheme.surfaceVariant
+                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                hapticFeedbackEnabled = hapticFeedbackEnabled,
+                keyPopupEnabled = keyPopupEnabled
             ) {
                 onToggleSymbols()
             }
@@ -880,7 +1140,9 @@ fun AlphabetKeyboardLayout(
             KeyButton(
                 text = " ",
                 modifier = Modifier.weight(1f),
-                backgroundColor = MaterialTheme.colorScheme.surfaceVariant
+                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                hapticFeedbackEnabled = hapticFeedbackEnabled,
+                keyPopupEnabled = keyPopupEnabled
             ) {
                 onSpace()
             }
@@ -889,7 +1151,9 @@ fun AlphabetKeyboardLayout(
                 icon = Icons.Default.KeyboardReturn,
                 modifier = Modifier.width(84.dp),
                 backgroundColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                hapticFeedbackEnabled = hapticFeedbackEnabled,
+                keyPopupEnabled = keyPopupEnabled
             ) {
                 onEnter()
             }
@@ -1300,9 +1564,13 @@ fun KeyButton(
     modifier: Modifier = Modifier,
     backgroundColor: Color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    hapticFeedbackEnabled: Boolean = true,
+    keyPopupEnabled: Boolean = true,
     onClick: () -> Unit
 ) {
+    val view = androidx.compose.ui.platform.LocalView.current
     val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
 
     Box(
         modifier = modifier
@@ -1310,6 +1578,9 @@ fun KeyButton(
             .clip(RoundedCornerShape(8.dp))
             .background(backgroundColor)
             .clickable(interactionSource = interactionSource, indication = androidx.compose.foundation.LocalIndication.current) {
+                if (hapticFeedbackEnabled) {
+                    view.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                }
                 onClick()
             }
             .testTag(if (text != null) "key_$text" else "key_icon"),
@@ -1329,6 +1600,27 @@ fun KeyButton(
                 tint = contentColor,
                 modifier = Modifier.size(22.dp)
             )
+        }
+
+        // Key Press Enlarged Popup Preview
+        if (keyPopupEnabled && isPressed && text != null && text.length == 1) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shadowElevation = 6.dp,
+                modifier = Modifier
+                    .offset(y = (-45).dp)
+                    .size(44.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = text,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
         }
     }
 }
@@ -1377,3 +1669,464 @@ fun renderTextToBitmap(context: Context, text: String, fontPath: String): Bitmap
 
     return bitmap
 }
+
+// --- LEANTYPE MERGED FEATURE COMPOSABLES ---
+
+@Composable
+fun AiProofreaderLayout(
+    service: FontKeyboardService,
+    onClose: () -> Unit
+) {
+    var inputText by remember { mutableStateOf(service.getCurrentInputText()) }
+    var aiOutputText by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+
+    val tags = listOf("#proofread", "#formal", "#friendly", "#summarize", "#translate")
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "AI Smart Proofreader & Restyler",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "Close AI Panel")
+            }
+        }
+
+        // Action Prompt Capsules Row
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(vertical = 4.dp)
+        ) {
+            items(tags) { tag ->
+                SuggestionChip(
+                    onClick = {
+                        val activeText = inputText.ifBlank { service.getCurrentInputText() }
+                        if (activeText.isNotBlank()) {
+                            isLoading = true
+                            aiOutputText = ""
+                            service.requestAiProofread(tag.removePrefix("#"), activeText) { result ->
+                                isLoading = false
+                                aiOutputText = result
+                            }
+                        }
+                    },
+                    label = { Text(tag, fontSize = 12.sp) },
+                    colors = SuggestionChipDefaults.suggestionChipColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    )
+                )
+            }
+        }
+
+        // Output Result Box or Loading Indicator
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                .padding(10.dp)
+        ) {
+            if (isLoading) {
+                Row(
+                    modifier = Modifier.align(Alignment.Center),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("AI is generating response...", style = MaterialTheme.typography.bodyMedium)
+                }
+            } else if (aiOutputText.isNotEmpty()) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Text(
+                        text = aiOutputText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Button(
+                            onClick = {
+                                service.replaceCurrentTextWith(aiOutputText)
+                                onClose()
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Text("Apply AI Text")
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    text = if (inputText.isNotBlank()) "Target Text: \"$inputText\"\nTap an AI tag above (#proofread, #formal, #friendly) to transform." else "Type or select text in any app, then tap an AI action tag above!",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun TextEditingLayout(
+    service: FontKeyboardService,
+    onClose: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Top Action Bar: Cut, Copy, Paste, Select All, Undo, Redo
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Button(
+                    onClick = { service.currentInputConnection?.performContextMenuAction(android.R.id.selectAll) },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(32.dp)
+                ) { Text("Select All", fontSize = 11.sp) }
+
+                Button(
+                    onClick = { service.currentInputConnection?.performContextMenuAction(android.R.id.cut) },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(32.dp)
+                ) { Text("Cut", fontSize = 11.sp) }
+
+                Button(
+                    onClick = { service.currentInputConnection?.performContextMenuAction(android.R.id.copy) },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(32.dp)
+                ) { Text("Copy", fontSize = 11.sp) }
+
+                Button(
+                    onClick = { service.currentInputConnection?.performContextMenuAction(android.R.id.paste) },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(32.dp)
+                ) { Text("Paste", fontSize = 11.sp) }
+            }
+
+            IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Close, contentDescription = "Close Text Edit")
+            }
+        }
+
+        // Precise DPAD Arrow Controller Layout
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            // Up Arrow & Home
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                OutlinedButton(
+                    onClick = { service.currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MOVE_HOME)) },
+                    modifier = Modifier.height(38.dp)
+                ) { Text("Home", fontSize = 12.sp) }
+
+                IconButton(
+                    onClick = { service.currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP)) },
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                ) { Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Up") }
+
+                OutlinedButton(
+                    onClick = { service.currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MOVE_END)) },
+                    modifier = Modifier.height(38.dp)
+                ) { Text("End", fontSize = 12.sp) }
+            }
+
+            // Left, Center Backspace, Right
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = { service.currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_LEFT)) },
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                ) { Icon(Icons.Default.KeyboardArrowLeft, contentDescription = "Left") }
+
+                IconButton(
+                    onClick = {
+                        service.currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
+                        service.currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL))
+                    },
+                    modifier = Modifier.background(MaterialTheme.colorScheme.errorContainer, CircleShape)
+                ) { Icon(Icons.Outlined.Backspace, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
+
+                IconButton(
+                    onClick = { service.currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT)) },
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                ) { Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Right") }
+            }
+
+            // Down Arrow
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                IconButton(
+                    onClick = { service.currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN)) },
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                ) { Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Down") }
+            }
+        }
+    }
+}
+
+@Composable
+fun ClipboardHistoryLayout(
+    service: FontKeyboardService,
+    onClose: () -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    val clips = service.clipboardState.filter {
+        searchQuery.isBlank() || it.text.contains(searchQuery, ignoreCase = true)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Clipboard History (${clips.size})",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Row {
+                TextButton(
+                    onClick = {
+                        service.serviceScope.launch(Dispatchers.IO) {
+                            val db = KeyboardDatabase.getInstance(service.applicationContext)
+                            db.clipboardDao().clearUnpinnedClipboard()
+                        }
+                    }
+                ) { Text("Clear Unpinned", fontSize = 11.sp) }
+
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Default.Close, contentDescription = "Close Clipboard")
+                }
+            }
+        }
+
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("Search copied clips...", fontSize = 12.sp) },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .padding(bottom = 4.dp)
+        )
+
+        if (clips.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No clipboard history found.\nCopy text in any app to save clips here automatically!",
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                items(clips) { item ->
+                    Card(
+                        modifier = Modifier
+                            .width(180.dp)
+                            .fillMaxHeight()
+                            .clickable {
+                                service.currentInputConnection?.commitText(item.text, 1)
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (item.isPinned) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(8.dp),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = item.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 4,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        service.serviceScope.launch(Dispatchers.IO) {
+                                            val db = KeyboardDatabase.getInstance(service.applicationContext)
+                                            db.clipboardDao().insertClipboardItem(item.copy(isPinned = !item.isPinned))
+                                        }
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (item.isPinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                                        contentDescription = "Pin",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        service.serviceScope.launch(Dispatchers.IO) {
+                                            val db = KeyboardDatabase.getInstance(service.applicationContext)
+                                            db.clipboardDao().deleteClipboardItem(item)
+                                        }
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TextShortcutsLayout(
+    service: FontKeyboardService,
+    onClose: () -> Unit
+) {
+    val shortcuts = service.shortcutsState
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Text Expander Shortcuts (${shortcuts.size})",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "Close Shortcuts")
+            }
+        }
+
+        if (shortcuts.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No custom text expander shortcuts added yet.\nOpen app settings to add shortcuts like 'omw' -> 'On my way!'",
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                items(shortcuts) { shortcut ->
+                    val dateFormatted = remember {
+                        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+                    }
+                    val timeFormatted = remember {
+                        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+                    }
+                    val lastClip = service.clipboardState.firstOrNull()?.text ?: ""
+
+                    val expandedText = shortcut.expansion
+                        .replace("{date}", dateFormatted)
+                        .replace("{time}", timeFormatted)
+                        .replace("{clipboard}", lastClip)
+
+                    Card(
+                        modifier = Modifier
+                            .width(160.dp)
+                            .fillMaxHeight()
+                            .clickable {
+                                service.currentInputConnection?.commitText(expandedText, 1)
+                            },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = shortcut.shortcut,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = expandedText,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 3,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
