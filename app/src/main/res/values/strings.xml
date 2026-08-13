@@ -1,3 +1,20 @@
 <resources>
     <string name="app_name">Font Keyboard</string>
+    <string name="ai_settings_title">AI Smart Features</string>
+    <string name="gemini_api_key_label">Gemini API Key</string>
+    <string name="gemini_api_key_hint">AIzaSy...</string>
+    <string name="save_key_button">Save Key</string>
+    <string name="clear_key_button">Clear Key</string>
+    <string name="font_style_strip_label">Show Font Quick-Style Strip</string>
+    <string name="show_number_row_label">Show Top Number Row</string>
+    <string name="auto_correction_label">Auto-Correction</string>
+    <string name="auto_capitalization_label">Auto-Capitalization</string>
+    <string name="haptic_feedback_label">Key Haptic Feedback</string>
+    <string name="key_popup_label">Key Popup Preview</string>
+    <string name="incognito_mode_label">Incognito Typing Mode</string>
+    <string name="onboarding_title">Setup Font Keyboard</string>
+    <string name="onboarding_subtitle">Follow these steps to activate the custom keyboard service</string>
+    <string name="step_enable_keyboard">1. Enable Font Keyboard in Android Settings</string>
+    <string name="step_select_keyboard">2. Switch Active Input Method to Font Keyboard</string>
+    <string name="step_voice_permission">3. Grant Microphone Permission for Voice Dictation</string>
 </resources>

@@ -13,6 +13,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
+object GeminiConfig {
+    const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+    const val MODEL_NAME = "gemini-1.5-flash"
+}
+
 enum class AiAction {
     PROOFREAD, FORMAL, FRIENDLY, SUMMARIZE, TRANSLATE
 }

@@ -177,9 +177,7 @@ class FontKeyboardService : InputMethodService(),
                     val floatingX by prefs.floatingXFlow.collectAsState(initial = 0f)
                     val floatingY by prefs.floatingYFlow.collectAsState(initial = 0f)
                     val floatingMode by prefs.floatingModeFlow.collectAsState(initial = false)
-                    val recentEmojisStr by prefs.recentEmojisFlow.collectAsState(initial = "😊,👍,❤️,🔥,🎉,😂,✨,🙏")
-
-                    val recentEmojisList = recentEmojisStr.split(",").filter { it.isNotBlank() }
+                    val recentEmojisList by prefs.recentEmojisFlow.collectAsState(initial = listOf("😊", "👍", "❤️", "🔥", "🎉", "😂", "✨", "🙏"))
 
                     KeyboardScreen(
                         inputConnection = currentInputConnection,
