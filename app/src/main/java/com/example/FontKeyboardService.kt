@@ -183,8 +183,10 @@ class FontKeyboardService : InputMethodService(),
                     val floatingMode by prefs.floatingModeFlow.collectAsState(initial = false)
                     val recentEmojisList by prefs.recentEmojisFlow.collectAsState(initial = listOf("😊", "👍", "❤️", "🔥", "🎉", "😂", "✨", "🙏"))
 
+                    val liveInputConn by activeInputConnection
+
                     KeyboardScreen(
-                        inputConnection = currentInputConnection,
+                        inputConnection = liveInputConn ?: currentInputConnection,
                         repository = appRepository,
                         customFonts = customFontsState,
                         customEmojis = customEmojisState,
@@ -213,9 +215,22 @@ class FontKeyboardService : InputMethodService(),
         return rootView
     }
 
+    // Live reactive input connection
+    private val activeInputConnection = mutableStateOf<android.view.inputmethod.InputConnection?>(null)
+
+    override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
+        super.onStartInput(attribute, restarting)
+        activeInputConnection.value = currentInputConnection
+    }
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        activeInputConnection.value = currentInputConnection
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+    }
+
+    override fun onEvaluateInputViewShown(): Boolean {
+        return true
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {

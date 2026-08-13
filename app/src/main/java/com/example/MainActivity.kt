@@ -142,6 +142,18 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
     var hasApiKey by remember { mutableStateOf(!app.encryptedApiKeyManager.getApiKey().isNullOrBlank()) }
 
+    var practiceText by remember { mutableStateOf("") }
+    var isInAppKeyboardOpen by remember { mutableStateOf(true) }
+
+    val currentView = androidx.compose.ui.platform.LocalView.current
+    val inAppInputConnection = remember {
+        com.example.utils.InAppInputConnection(
+            targetView = currentView,
+            getCurrentText = { practiceText },
+            onTextUpdated = { practiceText = it }
+        )
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         // Sticky Header Top Bar
         Surface(
@@ -162,7 +174,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     modifier = Modifier.weight(1f)
                 )
                 Text(
-                    text = if (isKeyboardEnabled && isKeyboardSelected) "✓ Active" else "⚠ Not Active",
+                    text = if (isKeyboardEnabled && isKeyboardSelected) "✓ Active System IME" else "⚠ System IME Inactive",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = if (isKeyboardEnabled && isKeyboardSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
@@ -176,7 +188,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
             contentPadding = PaddingValues(16.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
         ) {
             // Onboarding Card (Full width span if not enabled)
             item(span = { GridItemSpan(columnCount) }) {
@@ -191,7 +205,12 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
             // Font Practice Workspace
             item {
-                PracticeWorkspaceCard()
+                PracticeWorkspaceCard(
+                    textInput = practiceText,
+                    onTextInputChange = { practiceText = it },
+                    isInAppKeyboardOpen = isInAppKeyboardOpen,
+                    onToggleInAppKeyboard = { isInAppKeyboardOpen = !isInAppKeyboardOpen }
+                )
             }
 
             // Keyboard Preferences & Behaviors
@@ -326,6 +345,38 @@ fun MainScreen(modifier: Modifier = Modifier) {
                             repository.clearUnpinnedClipboard()
                         }
                     }
+                )
+            }
+        }
+
+        // Live Interactive In-App Keyboard Preview
+        if (isInAppKeyboardOpen) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(320.dp),
+                shadowElevation = 8.dp,
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                com.example.keyboard.KeyboardScreen(
+                    inputConnection = inAppInputConnection,
+                    repository = repository,
+                    customFonts = customFonts,
+                    customEmojis = customEmojis,
+                    shortcuts = shortcuts,
+                    clipboardItems = clipboardItems,
+                    hapticEnabled = hapticFeedback,
+                    autoCapEnabled = autoCapitalization,
+                    autoCorrectEnabled = autoCorrection,
+                    keyPopupEnabled = keyPopup,
+                    showNumberRow = showNumberRow,
+                    suggestionStripEnabled = fontStyleStrip,
+                    recentEmojisList = listOf("😊", "👍", "❤️", "🔥", "🎉", "😂", "✨", "🙏"),
+                    initialFloatingX = 0f,
+                    initialFloatingY = 0f,
+                    initialFloatingMode = false,
+                    onVoiceDictationClick = { },
+                    onShareStickerBitmap = { }
                 )
             }
         }

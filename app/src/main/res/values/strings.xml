@@ -17,4 +17,5 @@
     <string name="step_enable_keyboard">1. Enable Font Keyboard in Android Settings</string>
     <string name="step_select_keyboard">2. Switch Active Input Method to Font Keyboard</string>
     <string name="step_voice_permission">3. Grant Microphone Permission for Voice Dictation</string>
+    <string name="subtype_en_us">English (US) - Font Keyboard</string>
 </resources>
