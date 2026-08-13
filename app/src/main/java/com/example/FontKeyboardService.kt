@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
+import android.view.LayoutInflater
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import androidx.compose.runtime.collectAsState
@@ -160,7 +161,10 @@ class FontKeyboardService : InputMethodService(),
     }
 
     override fun onCreateInputView(): View {
-        val composeView = ComposeView(this).apply {
+        val rootView = LayoutInflater.from(this).inflate(R.layout.keyboard_view, null)
+        val composeView = rootView.findViewById<ComposeView>(R.id.compose_keyboard_view)
+
+        composeView.apply {
             setViewTreeLifecycleOwner(this@FontKeyboardService)
             setViewTreeViewModelStoreOwner(this@FontKeyboardService)
             setViewTreeSavedStateRegistryOwner(this@FontKeyboardService)
@@ -206,7 +210,7 @@ class FontKeyboardService : InputMethodService(),
                 }
             }
         }
-        return composeView
+        return rootView
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {

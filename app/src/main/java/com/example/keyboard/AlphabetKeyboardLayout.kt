@@ -63,6 +63,20 @@ fun AlphabetKeyboardLayout(
         inputConnection.commitText(styled, 1)
     }
 
+    fun handleBackspaceTap() {
+        if (inputConnection == null) return
+        val selectedText = inputConnection.getSelectedText(0)
+        if (!selectedText.isNullOrEmpty()) {
+            inputConnection.commitText("", 1)
+        } else {
+            val deleted = inputConnection.deleteSurroundingText(1, 0)
+            if (!deleted) {
+                inputConnection.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DEL))
+                inputConnection.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DEL))
+            }
+        }
+    }
+
     fun handleSpaceTap() {
         if (inputConnection == null) return
         if (autoCorrectEnabled) {
@@ -76,7 +90,23 @@ fun AlphabetKeyboardLayout(
                 }
             }
         }
-        inputConnection.commitText(" ", 1)
+        val committed = inputConnection.commitText(" ", 1)
+        if (!committed) {
+            inputConnection.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_SPACE))
+            inputConnection.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_SPACE))
+        }
+    }
+
+    fun handleEnterTap() {
+        if (inputConnection == null) return
+        val handled = inputConnection.performEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_DONE) ||
+                inputConnection.performEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_GO) ||
+                inputConnection.performEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEND) ||
+                inputConnection.performEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH)
+        if (!handled) {
+            inputConnection.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER))
+            inputConnection.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_ENTER))
+        }
     }
 
     Column(
@@ -164,9 +194,7 @@ fun AlphabetKeyboardLayout(
                 modifier = Modifier.weight(1.5f),
                 height = keyHeight,
                 hapticEnabled = hapticEnabled,
-                onClick = {
-                    inputConnection?.deleteSurroundingText(1, 0)
-                }
+                onClick = { handleBackspaceTap() }
             )
         }
 
@@ -211,10 +239,7 @@ fun AlphabetKeyboardLayout(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 hapticEnabled = hapticEnabled,
-                onClick = {
-                    inputConnection?.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER))
-                    inputConnection?.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_ENTER))
-                }
+                onClick = { handleEnterTap() }
             )
         }
     }
